@@ -15,9 +15,14 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import com.example.demo_ai_even.cpp.Cpp
 import com.example.demo_ai_even.model.BleDevice
 import com.example.demo_ai_even.model.BlePairDevice
+import com.example.demo_ai_even.utils.ByteUtil
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import java.util.UUID
 
@@ -85,6 +90,9 @@ class BleManager private constructor() {
             Log.e(LOG_TAG, "ScanCallback - Failed: ErrorCode = $errorCode")
         }
     }
+
+    /// UI Thread
+    private val  mainScope: CoroutineScope = MainScope()
 
     //*================= Method - Public =================*//
 
@@ -211,7 +219,6 @@ class BleManager private constructor() {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 gatt?.discoverServices()
             } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
-
             }
         }
 
@@ -280,12 +287,46 @@ class BleManager private constructor() {
                     } else if (isRight) {
                         it.update(rightGatt = gatt, isRightConnected = true)
                     }
+                    requestData(byteArrayOf(0xf4.toByte(), 0x01.toByte()))
                     if (it.isBothConnected()) {
                         weakActivity.get()?.runOnUiThread {
                             BleChannelHelper.bleMC.flutterGlassesConnected(it.toConnectedJson())
                         }
                     }
                 }
+            }
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            super.onCharacteristicChanged(gatt, characteristic, value)
+            mainScope.launch {
+                val isLeft = gatt.device.address == connectedDevice?.leftDevice?.address
+                val isRight = gatt.device.address == connectedDevice?.rightDevice?.address
+                if (!isLeft && !isRight) {
+                    return@launch
+                }
+                //  Mic data:
+                //  - each pack data length must be 202
+                //  - data index: 0 = cmd, 1 = pack serial number，2～201 = real mic data
+                val isMicData = value[0] == 0xF1.toByte()
+                if(isMicData && value.size != 202) {
+                    return@launch
+                }
+                //  eg. LC3 to PCM
+                //if (isMicData) {
+                //    val lc3 = value.copyOfRange(2, 202)
+                //    val pcmData = Cpp.decodeLC3(lc3)!!//200
+                //    Log.d(this::class.simpleName,"============Lc3 data = $lc3, Pcm = $pcmData")
+                //}
+                BleChannelHelper.bleReceive(mapOf(
+                    "lr" to if (isLeft)  "L" else "R",
+                    "data" to value,
+                    "type" to if (isMicData)  "VoiceChunk" else "Receive",
+                 ))
             }
         }
 
@@ -296,7 +337,7 @@ class BleManager private constructor() {
             status: Int
         ) {
             super.onCharacteristicRead(gatt, characteristic, value, status)
-
+            print("===========onCharacteristicRead: $value")
         }
 
     }
@@ -306,6 +347,7 @@ class BleManager private constructor() {
      */
     private fun requestData(data: ByteArray, sendLeft: Boolean = false, sendRight: Boolean = false) {
         val isBothSend = !sendLeft && !sendRight
+        Log.d(LOG_TAG, "Send ${ if (isBothSend) "both" else if (sendLeft)  "left" else "right"} data = ${ByteUtil.byteToHexArray(data)}")
         if (sendLeft || isBothSend) {
             connectedDevice?.leftDevice?.sendData(data)
         }
