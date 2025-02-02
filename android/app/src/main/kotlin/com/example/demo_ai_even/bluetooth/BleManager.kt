@@ -317,11 +317,14 @@ class BleManager private constructor() {
                     return@launch
                 }
                 //  eg. LC3 to PCM
-                //if (isMicData) {
-                //    val lc3 = value.copyOfRange(2, 202)
-                //    val pcmData = Cpp.decodeLC3(lc3)!!//200
-                //    Log.d(this::class.simpleName,"============Lc3 data = $lc3, Pcm = $pcmData")
-                //}
+                if (isMicData) {
+                    val lc3 = value.copyOfRange(2, 202)
+                    val pcmData = Cpp.decodeLC3(lc3)!!//200
+
+                    // TODO 
+                    // to implement the pcmData for asr in AI answer
+                    Log.d(this::class.simpleName,"============Lc3 data = $lc3, Pcm = $pcmData")
+                }
                 BleChannelHelper.bleReceive(mapOf(
                     "lr" to if (isLeft)  "L" else "R",
                     "data" to value,
